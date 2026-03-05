@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   FolderKanban,
   Send,
+  MessageCircle,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Outreach", href: "/outreach", icon: Send },
+  { label: "Lead Expert", href: "/assistant", icon: MessageCircle },
   { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
 

@@ -207,10 +207,33 @@ model ResearchSession {
   @@index([projectId])
 }
 
+model AssistantConversation {
+  id        String             @id @default(cuid())
+  title     String             @default("New Conversation")
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  messages AssistantMessage[]
+}
+
+model AssistantMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String   // "user" | "assistant"
+  content        String
+  projectIds     Json?    // string[] of project IDs used for context
+  createdAt      DateTime @default(now())
+
+  conversation AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
 model Settings {
   id                    String   @id @default("default")
   llmProvider           String   @default("anthropic")
   llmApiKey             String   @default("")
+  webSearchEnabled      Boolean  @default(false)
   defaultMaxTouchpoints Int      @default(5)
   defaultIntervalDays   Int      @default(3)
   outreachTemplates     Json?

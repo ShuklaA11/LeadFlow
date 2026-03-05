@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { generateLLMResponse } from '@/lib/llm';
+import { generateLLMResponseWithTools } from '@/lib/llm-agent';
 import { PROJECT_CAMPAIGN_STAGE_LABELS } from '@/types';
 
 export async function POST(request: Request) {
@@ -36,7 +36,7 @@ ${query}
 
 Please provide a comprehensive lead research strategy.`;
 
-    const suggestions = await generateLLMResponse([
+    const suggestions = await generateLLMResponseWithTools([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ]);

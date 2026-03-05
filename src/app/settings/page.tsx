@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState({
     llmProvider: 'anthropic',
     llmApiKey: '',
+    webSearchEnabled: false,
     defaultMaxTouchpoints: 5,
     defaultIntervalDays: 3,
   });
@@ -70,8 +71,23 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">Your API key is stored locally and never shared.</p>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Ollama runs locally — no API key needed. Make sure Ollama is running on port 11434 with a model pulled (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">ollama pull llama3.1:8b</code>).</p>
+            <p className="text-sm text-muted-foreground">Ollama runs locally — no API key needed. Make sure Ollama is running on port 11434 with a model pulled (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">ollama pull qwen3.5:4b</code>).</p>
           )}
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div className="space-y-0.5">
+              <Label>Web Search</Label>
+              <p className="text-xs text-muted-foreground">
+                Let AI search the web (DuckDuckGo) when drafting messages or researching leads.
+                {settings.llmProvider !== 'ollama' && ' Currently only supported with Ollama.'}
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={settings.webSearchEnabled}
+              onChange={(e) => setSettings((s) => ({ ...s, webSearchEnabled: e.target.checked }))}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+          </div>
         </CardContent>
       </Card>
 

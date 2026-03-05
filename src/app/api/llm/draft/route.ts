@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { generateLLMResponse } from '@/lib/llm';
+import { generateLLMResponseWithTools } from '@/lib/llm-agent';
 import { PIPELINE_STAGE_LABELS, CHANNEL_LABELS, PROJECT_CAMPAIGN_STAGE_LABELS } from '@/types';
 
 export async function POST(request: Request) {
@@ -55,7 +55,7 @@ ${touchpointSummary}
 
 ${additionalContext ? `Additional context: ${additionalContext}` : ''}`;
 
-    const draft = await generateLLMResponse([
+    const draft = await generateLLMResponseWithTools([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ]);

@@ -24,7 +24,7 @@ export async function generateLLMResponse(messages: LLMMessage[]): Promise<strin
     const response = await fetch('http://localhost:11434/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'llama3.1:8b', messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: 'qwen3.5:4b', messages, max_tokens: 1024 }),
     });
 
     if (!response.ok) {

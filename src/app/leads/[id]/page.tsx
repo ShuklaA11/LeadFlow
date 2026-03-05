@@ -9,6 +9,7 @@ import { formatDate, formatRelativeDate } from '@/lib/utils';
 import { ArrowLeft, Mail, Phone, Linkedin, MapPin, Clock } from 'lucide-react';
 import { StageUpdater } from '@/components/stage-updater';
 import { EmailComposer } from '@/components/email-composer';
+import { LeadEditDialog } from '@/components/lead-edit-dialog';
 
 export default async function LeadDetailPage({
   params,
@@ -41,6 +42,7 @@ export default async function LeadDetailPage({
         <div className="flex items-center gap-2">
           <StageUpdater leadId={lead.id} currentStage={lead.currentStage} />
           <Badge className={lead.priorityScore >= 70 ? 'bg-green-600' : lead.priorityScore >= 40 ? 'bg-yellow-600' : 'bg-gray-600'}>Score: {lead.priorityScore}</Badge>
+          <LeadEditDialog lead={lead} />
           <EmailComposer leadId={lead.id} leadName={`${lead.firstName} ${lead.lastName}`} leadEmail={lead.email} />
         </div>
       </div>
@@ -61,7 +63,6 @@ export default async function LeadDetailPage({
               {lead.industry && <div className="flex justify-between"><span className="text-muted-foreground">Industry</span><span>{lead.industry}</span></div>}
               <div className="flex justify-between"><span className="text-muted-foreground">Source</span><span>{SOURCE_LABELS[lead.source]}</span></div>
             </div>
-            {lead.notes && (<><Separator /><div><p className="text-sm text-muted-foreground mb-1">Notes</p><p className="text-sm">{lead.notes}</p></div></>)}
           </CardContent>
         </Card>
 
@@ -108,6 +109,16 @@ export default async function LeadDetailPage({
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="text-lg">Notes</CardTitle></CardHeader>
+        <CardContent>
+          {lead.notes ? (
+            <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No notes yet. Click Edit to add notes.</p>
+          )}
         </CardContent>
       </Card>
     </div>
