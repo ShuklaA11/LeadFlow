@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum LeadStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum CompanySize {
+  SIZE_1_10
+  SIZE_11_50
+  SIZE_51_200
+  SIZE_200_PLUS
+}
+
+enum CompanyType {
+  SMB
+  BANK
+}
+
+enum LeadSource {
+  MANUAL
+  REFERRAL
+  LINKEDIN
+  WEBSITE
+  AI_RESEARCH
+  OTHER
+}
+
+enum DecisionMakerRole {
+  C_SUITE
+  VP
+  DIRECTOR
+  MANAGER
+  OTHER
+}
+
+enum PipelineStage {
+  RESEARCHED
+  CONTACTED
+  RESPONDED
+  MEETING_BOOKED
+  PROPOSAL_SENT
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum Channel {
+  EMAIL
+  LINKEDIN
+  PHONE
+  OTHER
+}
+
+enum TouchpointDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum TouchpointType {
+  INITIAL
+  FOLLOW_UP
+  REPLY
+  MEETING
+  NOTE
+}
+
+enum SequenceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  EXHAUSTED
+}
+
+enum ResearchStatus {
+  ACTIVE
+  COMPLETED
+}
+
+enum ProjectCampaignStage {
+  IDEATION
+  PLANNING
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Project {
+  id            String               @id @default(cuid())
+  name          String
+  description   String?
+  idea          String?
+  approach      String?
+  campaignStage ProjectCampaignStage @default(IDEATION)
+  color         String               @default("#6366f1")
+  status        ProjectStatus        @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  leads            Lead[]
+  researchSessions ResearchSession[]
+}
+
+model Lead {
+  id            String            @id @default(cuid())
+  projectId     String
+  firstName     String
+  lastName      String
+  company       String
+  title         String?
+  role          DecisionMakerRole @default(OTHER)
+  email         String?
+  phone         String?
+  linkedinUrl   String?
+  companySize   CompanySize?
+  companyType   CompanyType?
+  industry      String?
+  location      String?
+  source        LeadSource        @default(MANUAL)
+  notes         String?
+  priorityScore Int               @default(0)
+  currentStage  PipelineStage     @default(RESEARCHED)
+  status        LeadStatus        @default(ACTIVE)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stageHistory     LeadStageHistory[]
+  touchpoints      Touchpoint[]
+  outreachSequence OutreachSequence?
+
+  @@index([projectId])
+  @@index([priorityScore(sort: Desc)])
+  @@index([currentStage])
+  @@index([status])
+}
+
+model LeadStageHistory {
+  id        String        @id @default(cuid())
+  leadId    String
+  stage     PipelineStage
+  enteredAt DateTime      @default(now())
+  exitedAt  DateTime?
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+}
+
+model Touchpoint {
+  id        String              @id @default(cuid())
+  leadId    String
+  channel   Channel
+  direction TouchpointDirection
+  type      TouchpointType
+  subject   String?
+  body      String?
+  sentAt    DateTime            @default(now())
+  gotReply  Boolean             @default(false)
+  notes     String?
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([sentAt(sort: Desc)])
+}
+
+model OutreachSequence {
+  id            String         @id @default(cuid())
+  leadId        String         @unique
+  templateUsed  String?
+  currentStep   Int            @default(1)
+  maxSteps      Int            @default(5)
+  intervalDays  Int            @default(3)
+  nextTouchDate DateTime?
+  status        SequenceStatus @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+model ResearchSession {
+  id            String         @id @default(cuid())
+  projectId     String
+  query         String
+  aiSuggestions Json?
+  findings      Json?
+  status        ResearchStatus @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Settings {
+  id                    String   @id @default("default")
+  llmProvider           String   @default("anthropic")
+  llmApiKey             String   @default("")
+  defaultMaxTouchpoints Int      @default(5)
+  defaultIntervalDays   Int      @default(3)
+  outreachTemplates     Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
