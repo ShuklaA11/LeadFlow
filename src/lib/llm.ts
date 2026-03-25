@@ -13,7 +13,7 @@ async function getSettings() {
   return settings;
 }
 
-export async function generateLLMResponse(messages: LLMMessage[]): Promise<string> {
+export async function generateLLMResponse(messages: LLMMessage[], maxTokens: number = 1024): Promise<string> {
   const settings = await getSettings();
 
   if (settings.llmProvider !== 'ollama' && !settings.llmApiKey) {
@@ -24,7 +24,7 @@ export async function generateLLMResponse(messages: LLMMessage[]): Promise<strin
     const response = await fetch('http://localhost:11434/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3.5:4b', messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: 'qwen3.5:4b', messages, max_tokens: maxTokens }),
     });
 
     if (!response.ok) {
@@ -44,7 +44,7 @@ export async function generateLLMResponse(messages: LLMMessage[]): Promise<strin
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         system: messages.find(m => m.role === 'system')?.content || '',
         messages: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
       }),
@@ -64,7 +64,7 @@ export async function generateLLMResponse(messages: LLMMessage[]): Promise<strin
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${settings.llmApiKey}`,
       },
-      body: JSON.stringify({ model: 'gpt-4o', messages, max_tokens: 1024 }),
+      body: JSON.stringify({ model: 'gpt-4o', messages, max_tokens: maxTokens }),
     });
 
     if (!response.ok) {

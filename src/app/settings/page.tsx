@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState({
     llmProvider: 'anthropic',
     llmApiKey: '',
+    openaiApiKey: '',
     webSearchEnabled: false,
     defaultMaxTouchpoints: 5,
     defaultIntervalDays: 3,
@@ -87,6 +88,34 @@ export default function SettingsPage() {
               onChange={(e) => setSettings((s) => ({ ...s, webSearchEnabled: e.target.checked }))}
               className="h-4 w-4 rounded border-gray-300"
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Voice & Transcription</CardTitle>
+          <CardDescription>Configure audio transcription for call recordings</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>OpenAI API Key (for Whisper transcription)</Label>
+            <Input
+              type="password"
+              value={settings.openaiApiKey}
+              onChange={(e) => setSettings((s) => ({ ...s, openaiApiKey: e.target.value }))}
+              placeholder="sk-..."
+            />
+            <p className="text-xs text-muted-foreground">
+              {settings.llmProvider === 'openai'
+                ? 'Since your LLM provider is OpenAI, Whisper will use your LLM API key if this field is empty.'
+                : 'Required for transcribing call recordings. Whisper always uses OpenAI regardless of your LLM provider.'}
+              {' '}Cost: ~$0.12 per 20-minute call.
+            </p>
+          </div>
+          <div className="rounded-lg border p-3 space-y-1">
+            <Label className="text-sm">Supported formats</Label>
+            <p className="text-xs text-muted-foreground">m4a (iPhone voice memos), mp4 (Zoom/Google Meet), mp3, wav, webm — max 25MB per file.</p>
           </div>
         </CardContent>
       </Card>

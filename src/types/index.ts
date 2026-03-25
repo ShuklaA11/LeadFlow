@@ -6,6 +6,10 @@ export type {
   OutreachSequence,
   ResearchSession,
   Settings,
+  Call,
+  CallAnnotation,
+  CompanySummary,
+  ProjectSummary,
 } from '@prisma/client';
 
 export type {
@@ -22,6 +26,8 @@ export type {
   SequenceStatus,
   ResearchStatus,
   ProjectCampaignStage,
+  ConversationStage,
+  CallSentiment,
 } from '@prisma/client';
 
 export const PIPELINE_STAGE_LABELS: Record<string, string> = {
@@ -96,6 +102,42 @@ export const PROJECT_CAMPAIGN_STAGES_ORDERED = [
   'COMPLETED',
 ] as const;
 
+export const CONVERSATION_STAGE_LABELS: Record<string, string> = {
+  LEAD: 'Lead',
+  INTRO_CALL: 'Intro Call',
+  DEMO: 'Demo',
+  PILOT: 'Pilot',
+  CLOSED: 'Closed',
+};
+
+export const CONVERSATION_STAGES_ORDERED = [
+  'LEAD',
+  'INTRO_CALL',
+  'DEMO',
+  'PILOT',
+  'CLOSED',
+] as const;
+
+export const CALL_SENTIMENT_LABELS: Record<string, string> = {
+  VERY_POSITIVE: 'Very Positive',
+  POSITIVE: 'Positive',
+  NEUTRAL: 'Neutral',
+  NEGATIVE: 'Negative',
+  VERY_NEGATIVE: 'Very Negative',
+};
+
+export interface StructuredNotes {
+  summary: string;
+  keyPoints: string[];
+  quotes: string[];
+  objections: string[];
+  validationSignals: string[];
+  commitments: string[];
+  nextSteps: string[];
+  sentiment: 'very_positive' | 'positive' | 'neutral' | 'negative' | 'very_negative';
+  sentimentScore: number;
+}
+
 export type LeadWithRelations = {
   id: string;
   projectId: string;
@@ -115,11 +157,24 @@ export type LeadWithRelations = {
   notes: string | null;
   priorityScore: number;
   currentStage: string;
+  conversationStage: string;
   status: string;
   createdAt: Date;
   updatedAt: Date;
   project: { id: string; name: string; color: string };
   stageHistory: { id: string; stage: string; enteredAt: Date; exitedAt: Date | null }[];
+  calls: {
+    id: string;
+    title: string;
+    callDate: Date;
+    durationMinutes: number | null;
+    sentiment: string | null;
+    sentimentScore: number | null;
+    structuredNotes: StructuredNotes | null;
+    manualNotes: string | null;
+    transcript: string | null;
+    audioFilePath: string | null;
+  }[];
   touchpoints: {
     id: string;
     channel: string;

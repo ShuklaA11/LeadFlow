@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Users, Kanban, Search } from 'lucide-react';
 import { PIPELINE_STAGE_LABELS, PROJECT_CAMPAIGN_STAGE_LABELS } from '@/types';
 import { ProjectSettingsDialog } from '@/components/project-settings-dialog';
+import { ProjectSummaryCard } from '@/components/project-summary-card';
 
 export default async function ProjectDashboardPage({
   params,
@@ -29,6 +30,11 @@ export default async function ProjectDashboardPage({
   });
 
   if (!project) notFound();
+
+  const projectSummary = await prisma.projectSummary.findUnique({
+    where: { projectId },
+    select: { summary: true, insights: true, companyCount: true, leadCount: true, generatedAt: true },
+  });
 
   const leadsByStage: Record<string, number> = {};
   project.leads.forEach((lead) => {
@@ -105,6 +111,8 @@ export default async function ProjectDashboardPage({
           </div>
         </CardContent>
       </Card>
+
+      <ProjectSummaryCard projectId={projectId} summary={projectSummary} />
 
       {project.leads.length > 0 && (
         <Card>

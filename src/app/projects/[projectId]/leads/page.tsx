@@ -3,10 +3,11 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus } from 'lucide-react';
-import { PIPELINE_STAGE_LABELS } from '@/types';
+import { Plus, Building2 } from 'lucide-react';
+import { PIPELINE_STAGE_LABELS, CONVERSATION_STAGE_LABELS } from '@/types';
 import { formatRelativeDate } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { CompanyGroup } from '@/components/company-group';
 
 export default async function ProjectLeadsPage({
   params,
@@ -21,9 +22,24 @@ export default async function ProjectLeadsPage({
     where: { projectId, status: 'ACTIVE' },
     include: {
       touchpoints: { orderBy: { sentAt: 'desc' }, take: 1 },
-      _count: { select: { touchpoints: true } },
+      _count: { select: { touchpoints: true, calls: true } },
     },
     orderBy: { priorityScore: 'desc' },
+  });
+
+  // Group leads by company
+  const companiesMap = new Map<string, typeof leads>();
+  for (const lead of leads) {
+    const group = companiesMap.get(lead.company) || [];
+    group.push(lead);
+    companiesMap.set(lead.company, group);
+  }
+
+  // Sort companies by highest priority lead in each group
+  const companies = [...companiesMap.entries()].sort((a, b) => {
+    const maxA = Math.max(...a[1].map(l => l.priorityScore));
+    const maxB = Math.max(...b[1].map(l => l.priorityScore));
+    return maxB - maxA;
   });
 
   return (
@@ -31,7 +47,7 @@ export default async function ProjectLeadsPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{project.name} — Leads</h1>
-          <p className="text-muted-foreground">{leads.length} active leads</p>
+          <p className="text-muted-foreground">{leads.length} active leads across {companies.length} {companies.length === 1 ? 'company' : 'companies'}</p>
         </div>
         <Link href={`/leads/new?projectId=${projectId}`}>
           <Button><Plus className="mr-2 h-4 w-4" /> Add Lead</Button>
@@ -45,34 +61,10 @@ export default async function ProjectLeadsPage({
           <Link href={`/leads/new?projectId=${projectId}`}><Button>Add Lead</Button></Link>
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead>Score</TableHead>
-                <TableHead>Touchpoints</TableHead>
-                <TableHead>Last Contact</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => (
-                <TableRow key={lead.id}>
-                  <TableCell>
-                    <Link href={`/leads/${lead.id}`} className="font-medium hover:underline">{lead.firstName} {lead.lastName}</Link>
-                    {lead.title && <div className="text-xs text-muted-foreground">{lead.title}</div>}
-                  </TableCell>
-                  <TableCell>{lead.company}</TableCell>
-                  <TableCell><Badge variant="outline">{PIPELINE_STAGE_LABELS[lead.currentStage]}</Badge></TableCell>
-                  <TableCell><Badge className={lead.priorityScore >= 70 ? 'bg-green-600' : lead.priorityScore >= 40 ? 'bg-yellow-600' : 'bg-gray-600'}>{lead.priorityScore}</Badge></TableCell>
-                  <TableCell>{lead._count.touchpoints}</TableCell>
-                  <TableCell className="text-muted-foreground">{lead.touchpoints[0] ? formatRelativeDate(lead.touchpoints[0].sentAt) : 'Never'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="space-y-3">
+          {companies.map(([companyName, companyLeads]) => (
+            <CompanyGroup key={companyName} companyName={companyName} leads={companyLeads} />
+          ))}
         </div>
       )}
     </div>
