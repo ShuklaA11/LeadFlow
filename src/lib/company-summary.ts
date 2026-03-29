@@ -5,6 +5,7 @@ import { PIPELINE_STAGE_LABELS, CONVERSATION_STAGE_LABELS } from '@/types';
 interface SummaryResult {
   summary: string;
   insights: string;
+  nextSteps: string;
 }
 
 export async function generateCompanySummary(
@@ -60,7 +61,7 @@ ${callSummaries || '  No calls logged'}`;
 
   const systemPrompt = `You are a strategic business analyst helping evaluate a company relationship within a project.
 
-Respond with EXACTLY two sections separated by "---INSIGHTS---":
+Respond with EXACTLY three sections separated by "---INSIGHTS---" and "---NEXT_STEPS---":
 
 SECTION 1 (Summary): A concise 3-5 sentence summary of the relationship with this company. Cover: overall status, key themes from conversations, sentiment direction, and where the relationship stands.
 
@@ -73,7 +74,9 @@ SECTION 2 (Insights & Flags): Bullet points flagging important patterns, risks, 
 
 If there are no flags, say "No significant flags at this time."
 
-Do NOT use markdown headers. Just plain text for the summary, then "---INSIGHTS---", then bullet points.`;
+SECTION 3 (Next Steps): A prioritized bullet-point list of 2-5 concrete, actionable next steps to advance this relationship. Each step should be specific (who to contact, what to discuss, what to send). Base these on conversation history, commitments made, and current pipeline stage.
+
+Do NOT use markdown headers. Just plain text for the summary, then "---INSIGHTS---", then bullet points, then "---NEXT_STEPS---", then bullet points.`;
 
   const userPrompt = `## Project: ${project.name}
 ${projectContext}
@@ -116,6 +119,7 @@ export async function saveCompanySummary(
       companyName,
       summary: result.summary,
       insights: result.insights,
+      nextSteps: result.nextSteps,
       leadsIncluded: leads.map((l) => l.id),
       lastCallDate: lastCall?.callDate || null,
       generatedAt: new Date(),
@@ -123,6 +127,7 @@ export async function saveCompanySummary(
     update: {
       summary: result.summary,
       insights: result.insights,
+      nextSteps: result.nextSteps,
       leadsIncluded: leads.map((l) => l.id),
       lastCallDate: lastCall?.callDate || null,
       generatedAt: new Date(),
@@ -131,9 +136,13 @@ export async function saveCompanySummary(
 }
 
 function parseSummaryResponse(raw: string): SummaryResult {
-  const parts = raw.split('---INSIGHTS---');
+  const insightsSplit = raw.split('---INSIGHTS---');
+  const summary = (insightsSplit[0] || '').trim();
+  const rest = insightsSplit[1] || '';
+  const nextStepsSplit = rest.split('---NEXT_STEPS---');
   return {
-    summary: (parts[0] || '').trim(),
-    insights: (parts[1] || 'No significant flags at this time.').trim(),
+    summary,
+    insights: (nextStepsSplit[0] || 'No significant flags at this time.').trim(),
+    nextSteps: (nextStepsSplit[1] || '').trim(),
   };
 }

@@ -57,13 +57,28 @@ ${content}`;
 }
 
 function parseStructuredNotes(raw: string): StructuredNotes {
-  // Strip markdown code blocks if present
-  let cleaned = raw.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+  if (!raw || !raw.trim()) {
+    throw new Error('LLM returned an empty response. Check your model and API key in Settings.');
   }
 
-  const parsed = JSON.parse(cleaned);
+  // Strip <think>...</think> blocks (qwen3 and other reasoning models)
+  let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  // Strip markdown code blocks if present
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+  }
+
+  if (!cleaned) {
+    throw new Error('LLM returned only thinking tokens with no JSON output. Try again or switch models in Settings.');
+  }
+
+  let parsed: ReturnType<typeof JSON.parse>;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error(`LLM response was not valid JSON. Raw response: ${cleaned.slice(0, 200)}`);
+  }
 
   // Validate and provide defaults
   return {

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Building2, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
+import { Building2, RefreshCw, Loader2, AlertTriangle, ArrowRightCircle } from 'lucide-react';
 import { formatRelativeDate } from '@/lib/utils';
 
 interface CompanySummaryCardProps {
@@ -14,6 +14,7 @@ interface CompanySummaryCardProps {
   summary: {
     summary: string;
     insights: string;
+    nextSteps: string | null;
     generatedAt: Date;
   } | null;
 }
@@ -82,6 +83,15 @@ export function CompanySummaryCard({ projectId, companyName, summary }: CompanyS
             )}
             {summary.insights === 'No significant flags at this time.' && (
               <Badge variant="outline" className="text-xs">No flags</Badge>
+            )}
+            {summary.nextSteps && (
+              <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <ArrowRightCircle className="h-3.5 w-3.5 text-blue-500" />
+                  <span className="text-sm font-medium">Next Steps</span>
+                </div>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{summary.nextSteps}</p>
+              </div>
             )}
           </div>
         ) : (

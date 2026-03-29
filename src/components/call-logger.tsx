@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
-import { Phone, Loader2, Sparkles, Upload, FileText } from 'lucide-react';
+import { MessageSquare, Loader2, Sparkles, Upload, FileText } from 'lucide-react';
 import { CALL_SENTIMENT_LABELS } from '@/types';
 import type { StructuredNotes } from '@/types';
 
@@ -74,7 +74,7 @@ export function CallLogger({ leadId, leadName }: CallLoggerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leadId,
-          title: title || `Call with ${leadName}`,
+          title: title || `Contact with ${leadName}`,
           callDate,
           durationMinutes: durationMinutes ? parseInt(durationMinutes) : null,
           audioFilePath: filePath,
@@ -121,7 +121,7 @@ export function CallLogger({ leadId, leadName }: CallLoggerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leadId,
-          title: title || `Call with ${leadName}`,
+          title: title || `Contact with ${leadName}`,
           callDate,
           durationMinutes: durationMinutes ? parseInt(durationMinutes) : null,
           manualNotes,
@@ -175,12 +175,12 @@ export function CallLogger({ leadId, leadName }: CallLoggerProps) {
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="gap-1.5">
-          <Phone className="h-4 w-4" /> Log Call
+          <MessageSquare className="h-4 w-4" /> Log Contact
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Log Call with {leadName}</DialogTitle>
+          <DialogTitle>Log Contact with {leadName}</DialogTitle>
           <DialogDescription>
             Upload a recording or enter manual notes to generate AI-structured insights.
           </DialogDescription>
@@ -218,7 +218,7 @@ export function CallLogger({ leadId, leadName }: CallLoggerProps) {
               <Label htmlFor="call-title">Title</Label>
               <Input
                 id="call-title"
-                placeholder={`e.g. Intro call with ${leadName}`}
+                placeholder={`e.g. Intro contact with ${leadName}`}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
@@ -265,8 +265,8 @@ export function CallLogger({ leadId, leadName }: CallLoggerProps) {
               <Textarea
                 id="call-notes"
                 placeholder={mode === 'recording'
-                  ? 'Any additional context about the call...'
-                  : 'Write your call notes here — key points, quotes, outcomes, next steps...'}
+                  ? 'Any additional context about the contact...'
+                  : 'Write your notes here — key points, quotes, outcomes, next steps...'}
                 value={manualNotes}
                 onChange={(e) => setManualNotes(e.target.value)}
                 rows={mode === 'manual' ? 8 : 3}

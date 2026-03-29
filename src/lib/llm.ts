@@ -21,10 +21,19 @@ export async function generateLLMResponse(messages: LLMMessage[], maxTokens: num
   }
 
   if (settings.llmProvider === 'ollama') {
-    const response = await fetch('http://localhost:11434/v1/chat/completions', {
+    // Use native Ollama API (/api/chat) so that think: false is properly respected.
+    // The OpenAI-compatible endpoint ignores think: false for Qwen3 and returns
+    // the reasoning in reasoning_content with an empty content field.
+    const response = await fetch('http://localhost:11434/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3.5:4b', messages, max_tokens: maxTokens }),
+      body: JSON.stringify({
+        model: 'qwen3.5:4b',
+        messages,
+        think: false,
+        stream: false,
+        options: { num_predict: maxTokens },
+      }),
     });
 
     if (!response.ok) {
@@ -33,7 +42,7 @@ export async function generateLLMResponse(messages: LLMMessage[], maxTokens: num
     }
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    return data.message.content;
   } else if (settings.llmProvider === 'anthropic') {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

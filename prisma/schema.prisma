@@ -160,6 +160,7 @@ model Lead {
   touchpoints      Touchpoint[]
   outreachSequence OutreachSequence?
   calls            Call[]
+  reminders        Reminder[]
 
   @@index([projectId])
   @@index([priorityScore(sort: Desc)])
@@ -293,6 +294,7 @@ model CompanySummary {
   companyName   String
   summary       String
   insights      String
+  nextSteps     String?
   leadsIncluded Json
   lastCallDate  DateTime?
   generatedAt   DateTime @default(now())
@@ -330,4 +332,21 @@ model Settings {
   outreachTemplates     Json?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+}
+
+model Reminder {
+  id        String   @id @default(cuid())
+  leadId    String
+  title     String
+  notes     String?
+  dueDate   DateTime
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([dueDate])
+  @@index([completed])
 }

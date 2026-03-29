@@ -18,16 +18,28 @@ async function getOpenAIKey(): Promise<string> {
   return key;
 }
 
+const MIME_TYPES: Record<string, string> = {
+  '.m4a': 'audio/mp4',
+  '.mp4': 'video/mp4',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+};
+
 export async function transcribeAudio(filePath: string): Promise<string> {
   const apiKey = await getOpenAIKey();
 
   const fileBuffer = await readFile(filePath);
   const fileName = path.basename(filePath);
+  const ext = path.extname(fileName).toLowerCase();
+  const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
 
   const formData = new FormData();
-  formData.append('file', new Blob([fileBuffer]), fileName);
+  formData.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
   formData.append('model', 'whisper-1');
-  formData.append('response_format', 'text');
+  formData.append('response_format', 'json');
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -42,6 +54,9 @@ export async function transcribeAudio(filePath: string): Promise<string> {
     throw new Error(`Whisper API error (${response.status}): ${error}`);
   }
 
-  const transcript = await response.text();
-  return transcript.trim();
+  const data = await response.json() as { text: string };
+  if (!data.text) {
+    throw new Error('Whisper returned an empty transcript. The audio may be silent or unrecognizable.');
+  }
+  return data.text.trim();
 }

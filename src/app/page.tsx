@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PIPELINE_STAGE_LABELS } from '@/types';
 import { formatRelativeDate } from '@/lib/utils';
-import { Plus, ArrowRight } from 'lucide-react';
+import { Plus, ArrowRight, Bell } from 'lucide-react';
 
 export default async function DashboardPage() {
   const projects = await prisma.project.findMany({
@@ -70,6 +70,21 @@ export default async function DashboardPage() {
   const responseRate = contactedOrBeyond > 0
     ? Math.round((respondedCount / contactedOrBeyond) * 100)
     : 0;
+
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const upcomingReminders = await prisma.reminder.findMany({
+    where: {
+      completed: false,
+      dueDate: { lte: sevenDaysFromNow },
+    },
+    include: {
+      lead: {
+        select: { id: true, firstName: true, lastName: true, company: true },
+      },
+    },
+    orderBy: { dueDate: 'asc' },
+    take: 10,
+  });
 
   return (
     <div className="space-y-6">
@@ -224,6 +239,41 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {upcomingReminders.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-lg">Upcoming Reminders</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {upcomingReminders.map((reminder) => {
+                const isOverdue = new Date(reminder.dueDate) < now;
+                return (
+                  <Link
+                    key={reminder.id}
+                    href={`/leads/${reminder.lead.id}`}
+                    className={`flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors ${isOverdue ? 'border-red-500/30 bg-red-500/5' : ''}`}
+                  >
+                    <div>
+                      <div className="font-medium text-sm">{reminder.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {reminder.lead.firstName} {reminder.lead.lastName} · {reminder.lead.company}
+                      </div>
+                    </div>
+                    <Badge variant={isOverdue ? 'destructive' : 'outline'} className="text-xs">
+                      {isOverdue ? 'Overdue' : ''} {formatRelativeDate(reminder.dueDate)}
+                    </Badge>
+                  </Link>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

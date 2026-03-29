@@ -15,6 +15,7 @@ import { CallLogger } from '@/components/call-logger';
 import { CallList } from '@/components/call-list';
 import { CompanySummaryCard } from '@/components/company-summary-card';
 import { LeadEditDialog } from '@/components/lead-edit-dialog';
+import { ReminderSection } from '@/components/reminder-form';
 
 export default async function LeadDetailPage({
   params,
@@ -30,6 +31,7 @@ export default async function LeadDetailPage({
       touchpoints: { orderBy: { sentAt: 'desc' } },
       outreachSequence: true,
       calls: { orderBy: { callDate: 'desc' } },
+      reminders: { orderBy: { dueDate: 'asc' } },
     },
   });
 
@@ -37,7 +39,7 @@ export default async function LeadDetailPage({
 
   const companySummary = await prisma.companySummary.findUnique({
     where: { projectId_companyName: { projectId: lead.projectId, companyName: lead.company } },
-    select: { summary: true, insights: true, generatedAt: true },
+    select: { summary: true, insights: true, nextSteps: true, generatedAt: true },
   });
 
   return (
@@ -63,7 +65,7 @@ export default async function LeadDetailPage({
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="calls">Calls ({lead.calls.length})</TabsTrigger>
+          <TabsTrigger value="calls">Contacts ({lead.calls.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6 mt-4">
@@ -137,6 +139,8 @@ export default async function LeadDetailPage({
               </div>
             </CardContent>
           </Card>
+          <ReminderSection leadId={lead.id} reminders={lead.reminders} />
+
           <Card>
             <CardHeader><CardTitle className="text-lg">Notes</CardTitle></CardHeader>
             <CardContent>
