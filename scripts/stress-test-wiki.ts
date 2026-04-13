@@ -568,6 +568,86 @@ async function main() {
     }
   }
 
+  // ========== TEST GROUP 4: Live LLM Compile (gated) ==========
+  section('4. Live LLM Compile (gated by WIKI_TEST_LIVE=1)');
+
+  if (process.env.WIKI_TEST_LIVE === '1') {
+    const companyGen = await import('../src/lib/wiki/generators/company');
+    const personGen = await import('../src/lib/wiki/generators/person');
+    const callGen = await import('../src/lib/wiki/generators/call');
+
+    const liveRegistry: GeneratorRegistry = {
+      generateCompany: (pid, name) => companyGen.generate(pid, name),
+      generatePerson: (pid, leadId) => personGen.generate(pid, leadId),
+      generateCall: (pid, callId) => callGen.generate(pid, callId),
+      // Project index + topic generators not in scope for sub-task 4 — stub them
+      // so the call-scope tasks (which include projectIndex + topics) don't crash.
+      async generateProjectIndex() {
+        throw new Error('projectIndex generator not implemented in sub-task 4');
+      },
+      async generateTopic() {
+        throw new Error('topic generator not implemented in sub-task 4');
+      },
+    };
+
+    const result1 = await compileProject(
+      project.id,
+      { kind: 'call', callId: call1.id },
+      liveRegistry,
+    );
+
+    // Errors from projectIndex/topic stubs are expected; entity pages should succeed.
+    const entityWritten = result1.written.filter(
+      (p) => !p.startsWith('_') && p !== projectIndexPath(),
+    );
+    assert(
+      'Live compile wrote at least 3 entity pages (call, person, company)',
+      entityWritten.length >= 3,
+      `got ${entityWritten.length}: ${entityWritten.join(', ')}`,
+    );
+
+    // Verify the call doc was actually persisted with non-empty markdown
+    const callDocPath = callPath(lead1.company, call1.id, call1.callDate, call1.title);
+    const callDoc = await prisma.wikiDocument.findFirst({
+      where: { projectId: project.id, path: callDocPath, supersededById: null },
+    });
+    assert('Call wiki doc persisted', !!callDoc);
+    assert('Call wiki doc has non-empty content', !!callDoc && callDoc.content.length > 50);
+    assert('Call wiki doc kind = CALL', callDoc?.kind === 'CALL');
+
+    const personDocPath = personPath(lead1.company, lead1.id, `${lead1.firstName} ${lead1.lastName}`);
+    const personDoc = await prisma.wikiDocument.findFirst({
+      where: { projectId: project.id, path: personDocPath, supersededById: null },
+    });
+    assert('Person wiki doc persisted', !!personDoc);
+    assert('Person wiki doc has non-empty content', !!personDoc && personDoc.content.length > 50);
+
+    const companyDocPath = companyIndexPath(lead1.company);
+    const companyDoc = await prisma.wikiDocument.findFirst({
+      where: { projectId: project.id, path: companyDocPath, supersededById: null },
+    });
+    assert('Company wiki doc persisted', !!companyDoc);
+    assert('Company wiki doc has non-empty content', !!companyDoc && companyDoc.content.length > 50);
+
+    // Second compile should hit the contentHash skip path for unchanged pages
+    // (LLM is non-deterministic so this isn't guaranteed, but at least it should not error).
+    const result2 = await compileProject(
+      project.id,
+      { kind: 'call', callId: call1.id },
+      liveRegistry,
+    );
+    const entityFailures = result2.errors.filter(
+      (e) => !e.path.startsWith('_') && e.path !== projectIndexPath(),
+    );
+    assert(
+      'Second live compile produced no entity errors',
+      entityFailures.length === 0,
+      JSON.stringify(entityFailures),
+    );
+  } else {
+    console.log('  \x1b[33m⊘\x1b[0m skipped (set WIKI_TEST_LIVE=1 to run live LLM compile)');
+  }
+
   // ========== CLEANUP ==========
   section('Cleanup');
   await prisma.project.delete({ where: { id: project.id } });
