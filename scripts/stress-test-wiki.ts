@@ -22,6 +22,8 @@ import {
 import { compileProject, type GeneratorRegistry } from '../src/lib/wiki/compile';
 import type { WriteDocResult } from '../src/lib/wiki/store';
 import { companyIndexPath, personPath, callPath, topicPath, projectIndexPath } from '../src/lib/wiki/paths';
+import { FIXED_TOPICS } from '../src/lib/wiki/topics';
+import { generate as generateTopicDoc } from '../src/lib/wiki/generators/topic';
 
 let passed = 0;
 let failed = 0;
@@ -568,26 +570,55 @@ async function main() {
     }
   }
 
-  // ========== TEST GROUP 4: Live LLM Compile (gated) ==========
-  section('4. Live LLM Compile (gated by WIKI_TEST_LIVE=1)');
+  // ========== TEST GROUP 4: topics.ts + topic.ts stub path ==========
+  section('4. Topics module + topic generator stub path');
+
+  // FIXED_TOPICS sanity
+  {
+    assert('FIXED_TOPICS has 4 entries', FIXED_TOPICS.length === 4);
+    assert('FIXED_TOPICS includes objections', FIXED_TOPICS.includes('objections' as any));
+    assert('FIXED_TOPICS includes competitors', FIXED_TOPICS.includes('competitors' as any));
+    assert('FIXED_TOPICS includes icp-patterns', FIXED_TOPICS.includes('icp-patterns' as any));
+    assert('FIXED_TOPICS includes pricing-feedback', FIXED_TOPICS.includes('pricing-feedback' as any));
+  }
+
+  // topic generator: empty-match short-circuit writes deterministic stub without LLM.
+  // Use a topic key that won't match any structured notes in fixtures.
+  {
+    const result1 = await generateTopicDoc(project.id, 'unused-topic-key');
+    assert('Empty-match topic created a doc', result1.created === true);
+    assert('Empty-match topic wrote version 1', result1.doc.version === 1);
+    assert('Empty-match topic content has stub marker',
+      result1.doc.content.includes('No mentions yet'));
+    assert('Empty-match topic has humanized title',
+      result1.doc.content.includes('# Unused Topic Key'));
+    assert('Empty-match topic kind = TOPIC', result1.doc.kind === 'TOPIC');
+
+    // Rerunning should hit the contentHash skip path — no new version.
+    const result2 = await generateTopicDoc(project.id, 'unused-topic-key');
+    assert('Empty-match topic rerun is skipped (hash match)',
+      result2.created === false && result2.versionBumped === false);
+    assert('Empty-match topic rerun returned same version',
+      result2.doc.version === 1);
+  }
+
+  // ========== TEST GROUP 5: Live LLM Compile (gated) ==========
+  section('5. Live LLM Compile (gated by WIKI_TEST_LIVE=1)');
 
   if (process.env.WIKI_TEST_LIVE === '1') {
     const companyGen = await import('../src/lib/wiki/generators/company');
     const personGen = await import('../src/lib/wiki/generators/person');
     const callGen = await import('../src/lib/wiki/generators/call');
+    const projectIndexGen = await import('../src/lib/wiki/generators/project-index');
+    const topicGen = await import('../src/lib/wiki/generators/topic');
+    const { discoverTopics } = await import('../src/lib/wiki/topics');
 
     const liveRegistry: GeneratorRegistry = {
       generateCompany: (pid, name) => companyGen.generate(pid, name),
       generatePerson: (pid, leadId) => personGen.generate(pid, leadId),
       generateCall: (pid, callId) => callGen.generate(pid, callId),
-      // Project index + topic generators not in scope for sub-task 4 — stub them
-      // so the call-scope tasks (which include projectIndex + topics) don't crash.
-      async generateProjectIndex() {
-        throw new Error('projectIndex generator not implemented in sub-task 4');
-      },
-      async generateTopic() {
-        throw new Error('topic generator not implemented in sub-task 4');
-      },
+      generateProjectIndex: (pid) => projectIndexGen.generate(pid),
+      generateTopic: (pid, topicKey) => topicGen.generate(pid, topicKey),
     };
 
     const result1 = await compileProject(
@@ -596,17 +627,11 @@ async function main() {
       liveRegistry,
     );
 
-    // Errors from projectIndex/topic stubs are expected; entity pages should succeed.
-    const entityWritten = result1.written.filter(
-      (p) => !p.startsWith('_') && p !== projectIndexPath(),
-    );
-    assert(
-      'Live compile wrote at least 3 entity pages (call, person, company)',
-      entityWritten.length >= 3,
-      `got ${entityWritten.length}: ${entityWritten.join(', ')}`,
-    );
+    assert('Live compile: no errors across all generators',
+      result1.errors.length === 0, JSON.stringify(result1.errors));
+    assert('Live compile wrote at least 4 pages',
+      result1.written.length >= 4, `got ${result1.written.length}: ${result1.written.join(', ')}`);
 
-    // Verify the call doc was actually persisted with non-empty markdown
     const callDocPath = callPath(lead1.company, call1.id, call1.callDate, call1.title);
     const callDoc = await prisma.wikiDocument.findFirst({
       where: { projectId: project.id, path: callDocPath, supersededById: null },
@@ -629,21 +654,40 @@ async function main() {
     assert('Company wiki doc persisted', !!companyDoc);
     assert('Company wiki doc has non-empty content', !!companyDoc && companyDoc.content.length > 50);
 
-    // Second compile should hit the contentHash skip path for unchanged pages
-    // (LLM is non-deterministic so this isn't guaranteed, but at least it should not error).
+    const indexDoc = await prisma.wikiDocument.findFirst({
+      where: { projectId: project.id, path: projectIndexPath(), supersededById: null },
+    });
+    assert('Project index doc persisted', !!indexDoc);
+    assert('Project index doc has non-empty content',
+      !!indexDoc && indexDoc.content.length > 50);
+    assert('Project index doc kind = PROJECT_INDEX', indexDoc?.kind === 'PROJECT_INDEX');
+
+    // At least one topic doc should exist — call1 has pricing/objection keywords so topics fire
+    const topicDocs = await prisma.wikiDocument.findMany({
+      where: { projectId: project.id, kind: 'TOPIC', supersededById: null },
+    });
+    assert('At least one topic doc persisted', topicDocs.length >= 1,
+      `got ${topicDocs.length}`);
+
+    // discoverTopics should return an array (possibly empty — depends on LLM)
+    try {
+      const discovered = await discoverTopics(project.id);
+      assert('discoverTopics returned an array', Array.isArray(discovered));
+      assert('discoverTopics entries have valid shape',
+        discovered.every((t) => typeof t.key === 'string' && typeof t.title === 'string'));
+    } catch (e: any) {
+      // LLMs sometimes fail to produce strict JSON — log but don't hard-fail
+      console.log(`  \x1b[33m⚠\x1b[0m discoverTopics threw: ${e.message}`);
+    }
+
+    // Second compile — LLM output is non-deterministic, so we only assert no errors
     const result2 = await compileProject(
       project.id,
       { kind: 'call', callId: call1.id },
       liveRegistry,
     );
-    const entityFailures = result2.errors.filter(
-      (e) => !e.path.startsWith('_') && e.path !== projectIndexPath(),
-    );
-    assert(
-      'Second live compile produced no entity errors',
-      entityFailures.length === 0,
-      JSON.stringify(entityFailures),
-    );
+    assert('Second live compile: no errors',
+      result2.errors.length === 0, JSON.stringify(result2.errors));
   } else {
     console.log('  \x1b[33m⊘\x1b[0m skipped (set WIKI_TEST_LIVE=1 to run live LLM compile)');
   }

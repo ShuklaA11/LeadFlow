@@ -7,6 +7,7 @@ import {
   topicPath,
   projectIndexPath,
 } from './paths';
+import { FIXED_TOPICS } from './topics';
 
 export type CompileScope =
   | { kind: 'all' }
@@ -34,8 +35,6 @@ interface CompileTask {
   path: string;
   run: () => Promise<WriteDocResult>;
 }
-
-const FIXED_TOPICS = ['objections', 'competitors', 'icp-patterns', 'pricing-feedback'];
 
 export async function compileProject(
   projectId: string,
@@ -286,4 +285,3 @@ function detectRelevantTopics(structuredNotes: unknown): string[] {
   return topics;
 }
 
-export { FIXED_TOPICS };
