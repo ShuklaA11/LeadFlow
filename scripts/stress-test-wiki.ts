@@ -692,6 +692,125 @@ async function main() {
     console.log('  \x1b[33m⊘\x1b[0m skipped (set WIKI_TEST_LIVE=1 to run live LLM compile)');
   }
 
+  // ========== TEST GROUP 6: Sub-task 6 API routes ==========
+  section('6. API routes (compile + topics)');
+
+  const compileRoute = await import('../src/app/api/wiki/compile/route');
+  const topicsRoute = await import('../src/app/api/wiki/topics/route');
+
+  // Create a sibling project with wikiEnabled=false for gating tests
+  const noWikiProject = await prisma.project.create({
+    data: { name: 'No Wiki Project', wikiEnabled: false },
+  });
+
+  const callRoute = (
+    handler: (req: Request) => Promise<Response>,
+    url: string,
+    init?: RequestInit,
+  ) => handler(new Request(url, init));
+
+  // --- POST /api/wiki/compile ---
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    assert('compile POST: 400 on missing projectId', res.status === 400);
+  }
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: project.id }),
+    });
+    assert('compile POST: 400 on missing scope', res.status === 400);
+  }
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: project.id, scope: { kind: 'bogus' } }),
+    });
+    assert('compile POST: 400 on invalid scope kind', res.status === 400);
+  }
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: project.id, scope: { kind: 'company' } }),
+    });
+    assert('compile POST: 400 on company scope missing companyName', res.status === 400);
+  }
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: 'nonexistent-id', scope: { kind: 'all' } }),
+    });
+    assert('compile POST: 404 on nonexistent project', res.status === 404);
+  }
+  {
+    const res = await callRoute(compileRoute.POST, 'http://test/api/wiki/compile', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: noWikiProject.id, scope: { kind: 'all' } }),
+    });
+    assert('compile POST: 400 when wikiEnabled=false', res.status === 400);
+  }
+
+  // --- GET /api/wiki/topics ---
+  {
+    const res = await callRoute(topicsRoute.GET, 'http://test/api/wiki/topics');
+    assert('topics GET: 400 on missing projectId', res.status === 400);
+  }
+  {
+    const res = await callRoute(topicsRoute.GET, 'http://test/api/wiki/topics?projectId=nonexistent');
+    assert('topics GET: 404 on nonexistent project', res.status === 404);
+  }
+  {
+    const res = await callRoute(
+      topicsRoute.GET,
+      `http://test/api/wiki/topics?projectId=${noWikiProject.id}`,
+    );
+    assert('topics GET: 400 when wikiEnabled=false', res.status === 400);
+  }
+
+  // --- POST /api/wiki/topics ---
+  {
+    const res = await callRoute(topicsRoute.POST, 'http://test/api/wiki/topics', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    assert('topics POST: 400 on missing projectId', res.status === 400);
+  }
+  {
+    const res = await callRoute(topicsRoute.POST, 'http://test/api/wiki/topics', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: project.id }),
+    });
+    assert('topics POST: 400 on missing topicKey', res.status === 400);
+  }
+  {
+    const res = await callRoute(topicsRoute.POST, 'http://test/api/wiki/topics', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: noWikiProject.id, topicKey: 'foo' }),
+    });
+    assert('topics POST: 400 when wikiEnabled=false', res.status === 400);
+  }
+  {
+    // Materialize a topic that has no matches → uses deterministic stub, no LLM call.
+    const res = await callRoute(topicsRoute.POST, 'http://test/api/wiki/topics', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: project.id, topicKey: 'sub6-empty-topic' }),
+    });
+    assert('topics POST: 200 on stub materialization', res.status === 200);
+    const json: any = await res.json();
+    assert('topics POST: response has doc', !!json.doc);
+    assert('topics POST: doc kind = TOPIC', json.doc?.kind === 'TOPIC');
+    assert(
+      'topics POST: doc content has stub marker',
+      typeof json.doc?.content === 'string' && json.doc.content.includes('No mentions yet'),
+    );
+  }
+
+  // Cleanup the no-wiki sibling project (sub-task 6 fixtures only)
+  await prisma.project.delete({ where: { id: noWikiProject.id } });
+
   // ========== CLEANUP ==========
   section('Cleanup');
   await prisma.project.delete({ where: { id: project.id } });
