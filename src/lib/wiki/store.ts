@@ -19,7 +19,7 @@ export interface WriteDocInput {
   path: string;
   kind: WikiDocumentKind;
   content: string;
-  frontmatter: Omit<WikiFrontmatter, 'backlinks'> & { backlinks?: string[] };
+  frontmatter: { title: string; backlinks?: string[]; [key: string]: unknown };
   sources: WikiSource[];
 }
 
