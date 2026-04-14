@@ -24,6 +24,7 @@ import type { WriteDocResult } from '../src/lib/wiki/store';
 import { companyIndexPath, personPath, callPath, topicPath, projectIndexPath } from '../src/lib/wiki/paths';
 import { FIXED_TOPICS } from '../src/lib/wiki/topics';
 import { generate as generateTopicDoc } from '../src/lib/wiki/generators/topic';
+import { retrieveRelevantDocs, formatDocsForPrompt } from '../src/lib/wiki/retrieve';
 
 let passed = 0;
 let failed = 0;
@@ -810,6 +811,139 @@ async function main() {
 
   // Cleanup the no-wiki sibling project (sub-task 6 fixtures only)
   await prisma.project.delete({ where: { id: noWikiProject.id } });
+
+  // ========== TEST GROUP 7: Retrieval ==========
+  section('7. Wiki retrieval (TF scoring)');
+
+  // Seed 4 wiki docs in the fixture project with known content
+  const seedDocs = [
+    {
+      path: 'companies/acme/index.md',
+      kind: 'COMPANY' as const,
+      title: 'Acme Corp',
+      content: '# Acme Corp\n\nAcme Corp is a SaaS company. Their pricing is competitive.',
+    },
+    {
+      path: 'companies/acme/people/alice-rt.md',
+      kind: 'PERSON' as const,
+      title: 'Alice Anderson',
+      content: '# Alice Anderson\n\nAlice is the VP of Engineering at Acme.',
+    },
+    {
+      path: 'companies/globex/index.md',
+      kind: 'COMPANY' as const,
+      title: 'Globex Inc',
+      content: '# Globex Inc\n\nGlobex is a competitor that locked into a long contract.',
+    },
+    {
+      path: '_objections.md',
+      kind: 'TOPIC' as const,
+      title: 'Objections',
+      content: '# Objections\n\nPricing was a recurring objection. Several leads said the cost was too high.',
+    },
+  ];
+  for (const d of seedDocs) {
+    await prisma.wikiDocument.create({
+      data: {
+        projectId: project.id,
+        path: d.path,
+        kind: d.kind,
+        version: 1,
+        frontmatter: { title: d.title, backlinks: [] } as any,
+        content: d.content,
+        contentHash: 'rt-' + d.path,
+        sources: [] as any,
+      },
+    });
+  }
+
+  // Title match dominates — querying "Acme" should rank Acme Corp first
+  {
+    const results = await retrieveRelevantDocs(project.id, 'Acme', 8);
+    assert('Acme query returned results', results.length > 0);
+    assert(
+      'Acme query: top result is Acme Corp company page',
+      results[0]?.doc.path === 'companies/acme/index.md',
+      `top was ${results[0]?.doc.path}`,
+    );
+  }
+
+  // Multi-token query — "pricing objection" should surface objections page
+  {
+    const results = await retrieveRelevantDocs(project.id, 'pricing objection', 8);
+    assert('Pricing objection query returned results', results.length > 0);
+    const topPath = results[0]?.doc.path;
+    assert(
+      'Pricing objection: objections topic ranks first',
+      topPath === '_objections.md',
+      `top was ${topPath}`,
+    );
+  }
+
+  // Content-only match (no title hit) — "competitor" should surface Globex
+  {
+    const results = await retrieveRelevantDocs(project.id, 'competitor', 8);
+    assert('Competitor query returned results', results.length > 0);
+    const topPath = results[0]?.doc.path;
+    assert(
+      'Competitor query: Globex ranks first via content match',
+      topPath === 'companies/globex/index.md',
+      `top was ${topPath}`,
+    );
+  }
+
+  // Empty query → empty results
+  {
+    const results = await retrieveRelevantDocs(project.id, '', 8);
+    assert('Empty query returns no results', results.length === 0);
+  }
+
+  // Stopword-only query → empty results
+  {
+    const results = await retrieveRelevantDocs(project.id, 'the and is of', 8);
+    assert('Stopword-only query returns no results', results.length === 0);
+  }
+
+  // Limit parameter is respected
+  {
+    const results = await retrieveRelevantDocs(project.id, 'Acme pricing competitor objection', 2);
+    assert('Limit parameter caps results', results.length <= 2,
+      `got ${results.length}`);
+  }
+
+  // No-match query → empty results
+  {
+    const results = await retrieveRelevantDocs(project.id, 'xyzzy nonexistent term', 8);
+    assert('No-match query returns no results', results.length === 0);
+  }
+
+  // formatDocsForPrompt: empty input
+  {
+    const out = formatDocsForPrompt([]);
+    assert('formatDocsForPrompt: empty input has fallback', out.includes('No relevant'));
+  }
+
+  // formatDocsForPrompt: truncation
+  {
+    const longDoc = await prisma.wikiDocument.create({
+      data: {
+        projectId: project.id,
+        path: 'companies/longdoc.md',
+        kind: 'COMPANY',
+        version: 1,
+        frontmatter: { title: 'LongDoc', backlinks: [] } as any,
+        content: 'longword '.repeat(500),  // ~4500 chars
+        contentHash: 'rt-long',
+        sources: [] as any,
+      },
+    });
+    const formatted = formatDocsForPrompt(
+      [{ doc: longDoc, score: 1 }],
+      100,
+    );
+    assert('formatDocsForPrompt: long content is truncated',
+      formatted.includes('…') && formatted.length < 500);
+  }
 
   // ========== CLEANUP ==========
   section('Cleanup');
