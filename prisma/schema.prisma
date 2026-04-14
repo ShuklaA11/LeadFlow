@@ -129,6 +129,24 @@ enum WikiRawSourceKind {
   IMAGE
 }
 
+enum WikiLintFindingKind {
+  INCONSISTENCY
+  MISSING_DATA
+  TOPIC_CANDIDATE
+}
+
+enum WikiLintFindingStatus {
+  OPEN
+  DISMISSED
+  RESOLVED
+}
+
+enum WikiLintSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model Project {
   id            String               @id @default(cuid())
   name          String
@@ -148,6 +166,7 @@ model Project {
   projectSummary   ProjectSummary?
   wikiDocuments    WikiDocument[]
   wikiRawSources   WikiRawSource[]
+  wikiLintFindings WikiLintFinding[]
 }
 
 model Lead {
@@ -391,6 +410,28 @@ model Reminder {
   @@index([leadId])
   @@index([dueDate])
   @@index([completed])
+}
+
+model WikiLintFinding {
+  id          String                @id @default(cuid())
+  projectId   String
+  kind        WikiLintFindingKind
+  severity    WikiLintSeverity      @default(MEDIUM)
+  status      WikiLintFindingStatus @default(OPEN)
+  title       String
+  description String
+  docPaths    Json
+  evidence    Json
+  fingerprint String
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  resolvedAt  DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, fingerprint])
+  @@index([projectId, status])
+  @@index([projectId, kind, status])
 }
 
 model WikiRawSource {

@@ -25,6 +25,12 @@ import { companyIndexPath, personPath, callPath, topicPath, projectIndexPath } f
 import { FIXED_TOPICS } from '../src/lib/wiki/topics';
 import { generate as generateTopicDoc } from '../src/lib/wiki/generators/topic';
 import { retrieveRelevantDocs, formatDocsForPrompt } from '../src/lib/wiki/retrieve';
+import {
+  runConsistencyLint,
+  parseFindings,
+  fingerprintFinding,
+  type LLMFn,
+} from '../src/lib/wiki/lint/consistency';
 
 let passed = 0;
 let failed = 0;
@@ -944,6 +950,270 @@ async function main() {
     assert('formatDocsForPrompt: long content is truncated',
       formatted.includes('…') && formatted.length < 500);
   }
+
+  // ========== TEST GROUP 8: Consistency Lint (Phase 2.1) ==========
+  section('8. Consistency lint — fixture-stubbed');
+
+  const lintProject = await prisma.project.create({
+    data: { name: 'Lint Fixture Project', wikiEnabled: true },
+  });
+
+  const acmeCompanyPath = 'companies/lint-acme/index.md';
+  const acmeCallPath1 = 'companies/lint-acme/calls/2026-03-10-intro.md';
+  const acmeCallPath2 = 'companies/lint-acme/calls/2026-03-15-followup.md';
+
+  // Seed COMPANY + 2 CALL docs that backlink to the company doc.
+  // The two calls contradict each other on company size.
+  await prisma.wikiDocument.create({
+    data: {
+      projectId: lintProject.id,
+      path: acmeCompanyPath,
+      kind: 'COMPANY',
+      version: 1,
+      frontmatter: { title: 'Lint Acme', backlinks: [] } as any,
+      content: '# Lint Acme\n\nMid-market SaaS company.',
+      contentHash: 'lint-acme-co',
+      sources: [] as any,
+    },
+  });
+  await prisma.wikiDocument.create({
+    data: {
+      projectId: lintProject.id,
+      path: acmeCallPath1,
+      kind: 'CALL',
+      version: 1,
+      frontmatter: { title: 'Intro call', backlinks: [acmeCompanyPath] } as any,
+      content: '# Intro call\n\nThey told us the company has 50 employees and is bootstrapped.',
+      contentHash: 'lint-acme-call1',
+      sources: [] as any,
+    },
+  });
+  await prisma.wikiDocument.create({
+    data: {
+      projectId: lintProject.id,
+      path: acmeCallPath2,
+      kind: 'CALL',
+      version: 1,
+      frontmatter: { title: 'Follow-up call', backlinks: [acmeCompanyPath] } as any,
+      content: '# Follow-up call\n\nThe CTO mentioned they now have 200 employees and just raised a Series B.',
+      contentHash: 'lint-acme-call2',
+      sources: [] as any,
+    },
+  });
+
+  // Stub LLM that returns one finding referencing both call paths.
+  const stubFinding = {
+    findings: [
+      {
+        severity: 'HIGH',
+        title: 'Conflicting employee count for Lint Acme',
+        description:
+          'Two calls give incompatible headcount: 50 employees on the intro call vs 200 on the follow-up.',
+        evidence: [
+          { path: acmeCallPath1, quote: '50 employees' },
+          { path: acmeCallPath2, quote: '200 employees' },
+        ],
+      },
+    ],
+  };
+  const fixedLLM: LLMFn = async () => JSON.stringify(stubFinding);
+
+  // First run — should create one finding.
+  {
+    const result = await runConsistencyLint(lintProject.id, fixedLLM);
+    assert('Lint: scanned exactly 1 cluster', result.clustersScanned === 1,
+      `got ${result.clustersScanned}`);
+    assert('Lint: no clusters skipped', result.clustersSkipped === 0);
+    assert('Lint: 1 finding created', result.findingsCreated === 1,
+      `created=${result.findingsCreated}`);
+    assert('Lint: 0 findings updated on first run', result.findingsUpdated === 0);
+    assert('Lint: 1 LLM call', result.llmCalls === 1);
+  }
+
+  // DB shape check
+  {
+    const findings = await prisma.wikiLintFinding.findMany({
+      where: { projectId: lintProject.id },
+    });
+    assert('Lint: exactly one row in DB', findings.length === 1);
+    const f = findings[0];
+    assert('Lint: severity persisted as HIGH', f?.severity === 'HIGH');
+    assert('Lint: kind = INCONSISTENCY', f?.kind === 'INCONSISTENCY');
+    assert('Lint: status defaults OPEN', f?.status === 'OPEN');
+    const docPaths = f?.docPaths as string[];
+    assert('Lint: docPaths contains both call paths',
+      Array.isArray(docPaths) && docPaths.includes(acmeCallPath1) && docPaths.includes(acmeCallPath2));
+    const evidence = f?.evidence as Array<{ path: string; version: number; quote: string }>;
+    assert('Lint: evidence has version filled in from cluster',
+      Array.isArray(evidence) && evidence.every((e) => e.version === 1));
+  }
+
+  // Second run with same stub — should update, not duplicate (fingerprint stable).
+  {
+    const result = await runConsistencyLint(lintProject.id, fixedLLM);
+    assert('Lint: rerun creates 0 new findings', result.findingsCreated === 0,
+      `created=${result.findingsCreated}`);
+    assert('Lint: rerun updates the existing finding', result.findingsUpdated === 1,
+      `updated=${result.findingsUpdated}`);
+    const count = await prisma.wikiLintFinding.count({ where: { projectId: lintProject.id } });
+    assert('Lint: still exactly one row after rerun', count === 1, `count=${count}`);
+  }
+
+  // Hallucinated path — finding referencing a path not in the cluster is dropped.
+  {
+    const halluLLM: LLMFn = async () =>
+      JSON.stringify({
+        findings: [
+          {
+            severity: 'MEDIUM',
+            title: 'Bogus contradiction',
+            description: 'This references a path the model invented.',
+            evidence: [
+              { path: acmeCallPath1, quote: '50 employees' },
+              { path: 'companies/lint-acme/calls/imaginary.md', quote: 'made up' },
+            ],
+          },
+        ],
+      });
+    const before = await prisma.wikiLintFinding.count({ where: { projectId: lintProject.id } });
+    const result = await runConsistencyLint(lintProject.id, halluLLM);
+    const after = await prisma.wikiLintFinding.count({ where: { projectId: lintProject.id } });
+    assert('Lint: hallucinated finding dropped (no new row)', after === before);
+    assert('Lint: hallucinated finding not counted as created', result.findingsCreated === 0);
+  }
+
+  // Empty findings array → no rows created
+  {
+    const emptyProj = await prisma.project.create({
+      data: { name: 'Lint Empty Cluster', wikiEnabled: true },
+    });
+    const cPath = 'companies/empty-co/index.md';
+    const callP = 'companies/empty-co/calls/c1.md';
+    await prisma.wikiDocument.create({
+      data: {
+        projectId: emptyProj.id,
+        path: cPath,
+        kind: 'COMPANY',
+        version: 1,
+        frontmatter: { title: 'Empty Co', backlinks: [] } as any,
+        content: '# Empty Co',
+        contentHash: 'empty-co',
+        sources: [] as any,
+      },
+    });
+    await prisma.wikiDocument.create({
+      data: {
+        projectId: emptyProj.id,
+        path: callP,
+        kind: 'CALL',
+        version: 1,
+        frontmatter: { title: 'c1', backlinks: [cPath] } as any,
+        content: '# c1',
+        contentHash: 'empty-co-c1',
+        sources: [] as any,
+      },
+    });
+    const emptyLLM: LLMFn = async () => JSON.stringify({ findings: [] });
+    const result = await runConsistencyLint(emptyProj.id, emptyLLM);
+    assert('Lint: empty findings array yields 0 rows', result.findingsCreated === 0);
+    assert('Lint: empty findings still scans the cluster', result.clustersScanned === 1);
+    await prisma.project.delete({ where: { id: emptyProj.id } });
+  }
+
+  // Single-doc cluster → skipped, no LLM call
+  {
+    const soloProj = await prisma.project.create({
+      data: { name: 'Lint Solo', wikiEnabled: true },
+    });
+    await prisma.wikiDocument.create({
+      data: {
+        projectId: soloProj.id,
+        path: 'companies/solo/index.md',
+        kind: 'COMPANY',
+        version: 1,
+        frontmatter: { title: 'Solo', backlinks: [] } as any,
+        content: '# Solo',
+        contentHash: 'solo-co',
+        sources: [] as any,
+      },
+    });
+    let calls = 0;
+    const countingLLM: LLMFn = async () => {
+      calls++;
+      return '{"findings":[]}';
+    };
+    const result = await runConsistencyLint(soloProj.id, countingLLM);
+    assert('Lint: solo cluster skipped (clustersScanned=0)', result.clustersScanned === 0);
+    assert('Lint: solo cluster skipped (clustersSkipped=1)', result.clustersSkipped === 1);
+    assert('Lint: solo cluster made 0 LLM calls', calls === 0);
+    await prisma.project.delete({ where: { id: soloProj.id } });
+  }
+
+  // Empty project → 0 clusters scanned, 0 errors
+  {
+    const blankProj = await prisma.project.create({
+      data: { name: 'Lint Blank', wikiEnabled: true },
+    });
+    const result = await runConsistencyLint(blankProj.id, fixedLLM);
+    assert('Lint: empty project scans 0 clusters', result.clustersScanned === 0);
+    assert('Lint: empty project creates 0 findings', result.findingsCreated === 0);
+    await prisma.project.delete({ where: { id: blankProj.id } });
+  }
+
+  // Parser unit checks
+  {
+    const ok = parseFindings('```json\n{"findings":[{"severity":"LOW","title":"t","description":"d","evidence":[{"path":"a","quote":"q1"},{"path":"b","quote":"q2"}]}]}\n```');
+    assert('parseFindings: strips fences', ok.length === 1 && ok[0].severity === 'LOW');
+
+    const garbage = parseFindings('not json at all');
+    assert('parseFindings: garbage → empty', garbage.length === 0);
+
+    const tooFew = parseFindings('{"findings":[{"severity":"HIGH","title":"t","description":"d","evidence":[{"path":"a","quote":"q1"}]}]}');
+    assert('parseFindings: <2 evidence dropped', tooFew.length === 0);
+
+    const badSeverity = parseFindings('{"findings":[{"severity":"CATASTROPHIC","title":"t","description":"d","evidence":[{"path":"a","quote":"q1"},{"path":"b","quote":"q2"}]}]}');
+    assert('parseFindings: invalid severity → MEDIUM default',
+      badSeverity.length === 1 && badSeverity[0].severity === 'MEDIUM');
+  }
+
+  // Fingerprint stability
+  {
+    const f1 = fingerprintFinding('proj-x', {
+      evidence: [
+        { path: 'a', version: 1, quote: 'Hello World' },
+        { path: 'b', version: 1, quote: 'Other' },
+      ],
+    });
+    const f2 = fingerprintFinding('proj-x', {
+      evidence: [
+        { path: 'b', version: 1, quote: 'other' },
+        { path: 'a', version: 1, quote: 'hello   world' },
+      ],
+    });
+    assert('fingerprint: stable across order + case + whitespace', f1 === f2);
+
+    const f3 = fingerprintFinding('proj-y', {
+      evidence: [
+        { path: 'a', version: 1, quote: 'Hello World' },
+        { path: 'b', version: 1, quote: 'Other' },
+      ],
+    });
+    assert('fingerprint: different project → different hash', f1 !== f3);
+  }
+
+  // Live LLM gated
+  if (process.env.WIKI_TEST_LIVE === '1') {
+    section('8b. Consistency lint — live LLM');
+    const result = await runConsistencyLint(lintProject.id);
+    assert('Live lint: completes without throwing', true);
+    assert('Live lint: at least scanned the seeded cluster', result.clustersScanned >= 1,
+      `scanned=${result.clustersScanned}`);
+    console.log(`  ℹ live result: ${JSON.stringify(result)}`);
+  } else {
+    console.log('  \x1b[33m⊘\x1b[0m live lint skipped (set WIKI_TEST_LIVE=1)');
+  }
+
+  await prisma.project.delete({ where: { id: lintProject.id } });
 
   // ========== CLEANUP ==========
   section('Cleanup');
